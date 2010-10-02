@@ -1,0 +1,30 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+<style type="text/css">
+body {
+min-width: 400px;
+min-height: 30px;
+text-align: center;
+}
+label {
+font-weight: bold;
+text-align: center;
+}
+</style>
+<body>
+
+<script type="text/javascript" src="parseuri.js"></script>
+<script type="text/javascript" src="results_dialog.js"></script>
+<script type="text/javascript" src="common.js"></script>
+<script type="text/javascript">
+<![CDATA[
+chrome.windows.getCurrent(function(w) {
+	chrome.tabs.getSelected(w.id,
+		function(tab) {
+			Pers_results.load_results_dialog(tab);
+		});
+});
+]]>
+</script>
+</body>
+</html>

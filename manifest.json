@@ -1,0 +1,14 @@
+{
+  "name": "Perspectives",
+  "version": "0.1",
+  "description": "Securely bypasses Firefox HTTPS security errors by verifying certificates using a collection of Network Notaries. ",
+  "browser_action": {
+    "default_icon": "pers.png",
+	"default_popup": "popup.xhtml"
+  },
+  "permissions": [
+	"http://*.ron.lcs.mit.edu/",
+	"tabs"
+  ],
+  "background_page": "background.html"
+}
