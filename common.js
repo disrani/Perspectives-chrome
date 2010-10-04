@@ -1,5 +1,5 @@
 var Pers_debug = {
-	d_print_all : false,
+	d_print_all : true,
 
 	d_print_flags : { 
 		"policy" : false, 

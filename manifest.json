@@ -1,7 +1,7 @@
 {
   "name": "Perspectives",
-  "version": "0.1",
-  "description": "Securely bypasses Firefox HTTPS security errors by verifying certificates using a collection of Network Notaries. ",
+  "version": "0.2",
+  "description": "Helps detect Man-in-the-middle attacks by verifying certificates using a collection of Network Notaries. ",
   "browser_action": {
     "default_icon": "pers.png",
 	"default_popup": "popup.xhtml"

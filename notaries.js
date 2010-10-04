@@ -400,7 +400,7 @@ var Perspectives = {
 					server_result_list.push(res); 
 				} 
 			} 
-			Perspectives.notaryQueriesComplete(uri,cert,service_id,browser,
+			Perspectives.notaryQueriesComplete(uri,cert,service_id,tab,
 					has_user_permission, 
 					server_result_list);
 			delete Perspectives.query_result_data[service_id]; 
@@ -417,7 +417,7 @@ var Perspectives = {
         
  
 	notaryAjaxCallback: function(uri, cert, req, notary_server,service_id,
-				browser,has_user_permission) {  
+				tab,has_user_permission) {  
 	
 		if (req.readyState == 4) {  
 			if(req.status == 200){
@@ -432,8 +432,6 @@ var Perspectives = {
 					Pers_debug.d_print("main", bin_result);
 					Pers_debug.d_print("query", 
 						Pers_xml.resultToString(server_result,false)); 
-					var md5 = b64_hmac_md5(notary_server.public_key, bin_result);
-					Pers_debug.d_print("main", md5);
 					// TODO: Check signature
 					/*
 					var verifier = 
@@ -476,8 +474,8 @@ var Perspectives = {
 								" total = " + Perspectives.notaries.length); 
 					if(num_replies == Perspectives.notaries.length) { 
 						Pers_debug.d_print("query","got all server replies"); 	
-						Perspectives.notaryQueriesComplete(uri,cert,service_id,browser,
-								has_user_permission, 
+						Perspectives.notaryQueriesComplete(uri,cert,service_id,
+								tab, has_user_permission, 
 								Perspectives.query_result_data[service_id]);
 						delete Perspectives.query_result_data[service_id];
 						window.clearTimeout(Perspectives.
@@ -495,7 +493,7 @@ var Perspectives = {
 		}  
 	},  
 
-	notaryQueriesComplete: function(uri,cert,service_id,browser,
+	notaryQueriesComplete: function(uri,cert,service_id, tab,
 				has_user_permission,server_result_list) {
 		try {
 
@@ -537,7 +535,7 @@ var Perspectives = {
 										uri.port, test_key, 
 										str, null,svg, qd_days, 
 										is_consistent);
-			Perspectives.process_notary_results(uri,browser,has_user_permission); 
+			Perspectives.process_notary_results(uri, tab ,has_user_permission); 
 
 		} catch (e) { 
 			alert(e); 
@@ -743,29 +741,32 @@ var Perspectives = {
 			*/
 
 			if (cache_cert.summary.indexOf("ssl key") == -1) { 
-				cache_cert.tooltip = 
+				/*cache_cert.tooltip = 
 					Perspectives.strbundle.getString("noRepliesWarning");
 				Pers_statusbar.setStatus(uri, Pers_statusbar.STATE_NSEC, 
 					cache_cert.tooltip);
+				*/
 				if(ti.insecure) { 
-					Perspectives.notifyNoReplies(browser); 
+					Perspectives.notifyNoReplies(tab); 
 				} 
 			} else if(!cache_cert.secure){
-				cache_cert.tooltip = 
+				/*cache_cert.tooltip = 
 					Perspectives.strbundle.getString("inconsistentWarning");
 				Pers_statusbar.setStatus(uri, Pers_statusbar.STATE_NSEC, 
 					cache_cert.tooltip);
+				*/
 				if(ti.insecure && ti.firstLook){
-					Perspectives.notifyFailed(browser);
+					Perspectives.notifyFailed(tab);
 				}
 			} else if(cache_cert.duration < required_duration){
-				//cache_cert.tooltip = Perspectives.strbundle.
-				//	getFormattedString("thresholdWarning", 
-				//	[ cache_cert.duration, required_duration]);
+				/*cache_cert.tooltip = Perspectives.strbundle.
+					getFormattedString("thresholdWarning", 
+					[ cache_cert.duration, required_duration]);
 				Pers_statusbar.setStatus(uri, Pers_statusbar.STATE_NSEC, 
 					cache_cert.tooltip);
+				*/
 				if(ti.insecure && ti.firstLook){
-					Perspectives.notifyFailed(browser);
+					Perspectives.notifyFailed(tab);
 				}
 			}
 			else { //Its secure
@@ -802,13 +803,13 @@ var Perspectives = {
 						if(ti.exceptions_enabled) { 
 							ti.isTemp = !Perspectives.root_prefs.
 								getBoolPref("perspectives.exceptions.permanent");
-							Perspectives.do_override(browser, ti.cert, ti.isTemp);
-							cache_cert.identityText = Perspectives.strbundle.
-								getString("exceptionAdded");  
+							Perspectives.do_override(tab, ti.cert, ti.isTemp);
+							//cache_cert.identityText = Perspectives.strbundle.
+							//	getString("exceptionAdded");  
 							// don't give drop-down if user gave explicit
 							// permission to query notaries
 							if(ti.firstLook && !has_user_permission){
-								Perspectives.notifyOverride(browser);
+								Perspectives.notifyOverride(tab);
 							}
 						}
 					}
