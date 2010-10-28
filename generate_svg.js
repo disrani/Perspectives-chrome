@@ -61,7 +61,9 @@ var Pers_gen = {
 		var height = color_count * 30 + server_result_list.length * 20 
 			 	+ y_offset + 60;
 
-		//color_info[browser_key] = "green"; 	
+		if (browser_key != null) {
+			color_info[browser_key] = "green"; 	
+		}
 		var tmp_x = x_offset + 70;  
 		var res =  '<?xml version="1.0"?>\n' 
 					+ '<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" '

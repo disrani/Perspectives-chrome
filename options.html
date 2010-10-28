@@ -1,0 +1,88 @@
+<html>
+<head>
+<title> Perspectives Options </title>
+
+<body onload="load_current_options()">
+<h1> Perspectives Options </h1>
+<h3>Security Level </h3>
+
+<form name="options">
+<select name="security_level" onchange="quorum_update()">
+<option value="High_security">High Security</option>
+<option value="Medium_security">Medium Security</option>
+<option value="High_availability">High Availability</option>
+<option value="Manual">Manual Configuration</option>
+</select><br>
+
+Percentage of notaries that must agree (quorum percentage):
+<input type="text" size="4" name="quorum_percentage"><br>
+
+Days of continuous agreement required (quorom duration):
+<input type="text" size="4" name="quorum_duration"><br>
+
+<button onclick="save_options()">Save</button>
+
+</form>
+<script type="text/javascript">
+function load_current_options()
+{
+	if (localStorage["perspectives_security_level"] == null) {
+		document.options.security_level.value = "High_security";
+		document.options.quorum_percentage.value = 75;
+		document.options.quorum_duration.value = 2;
+	} else {
+		document.options.security_level.value = 
+					localStorage["perspectives_security_level"];
+		document.options.quorum_percentage.value = 
+					localStorage["perspectives_quorum_percentage"];
+		document.options.quorum_duration.value = 
+					localStorage["perspectives_quorum_duration"];
+	} 
+
+	if (document.options.security_level.value != "Manual") {
+		document.options.quorum_percentage.disabled = true;
+		document.options.quorum_duration.disabled = true;
+	}
+}	
+
+function quorum_update()
+{
+	switch(document.options.security_level.value)
+	{
+	case "High_security":
+		document.options.quorum_percentage.value = 75;
+		document.options.quorum_percentage.disabled = true;
+		document.options.quorum_duration.value = 2;
+		document.options.quorum_duration.disabled = true;
+		break;
+	case "Medium_security":
+		document.options.quorum_percentage.value = 75;
+		document.options.quorum_percentage.disabled = true;
+		document.options.quorum_duration.value = 0;
+		document.options.quorum_duration.disabled = true;
+		break;
+	case "High_availability":
+		document.options.quorum_percentage.value = 50 ;
+		document.options.quorum_percentage.disabled = true;
+		document.options.quorum_duration.value = 0;
+		document.options.quorum_duration.disabled = true;
+		break;
+	case "Manual":
+		document.options.quorum_percentage.disabled = false;
+		document.options.quorum_duration.disabled = false;
+		break;
+		
+	}
+}
+
+function save_options()
+{
+	localStorage["perspectives_security_level"] = 
+							document.options.security_level.value;
+	localStorage["perspectives_quorum_percentage"] = 
+			document.options.quorum_percentage.value;
+	localStorage["perspectives_quorum_duration"] = document.options.quorum_duration.value;
+}	
+</script>
+</body>
+</html>

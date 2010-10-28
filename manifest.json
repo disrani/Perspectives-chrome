@@ -7,8 +7,18 @@
 	"default_popup": "popup.xhtml"
   },
   "permissions": [
-	"http://*.ron.lcs.mit.edu/",
+	"https://*/*",
+	"http://*.ron.lcs.mit.edu/*",
 	"tabs"
   ],
+  "content_scripts": [
+	{
+	"matches": ["https://*/*"],
+	"js": ["content.js"],
+	"run_at": "document_idle"
+	}
+  ],
+	
+  "options_page": "options.html",
   "background_page": "background.html"
 }
