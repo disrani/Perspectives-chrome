@@ -968,10 +968,15 @@ var Perspectives = {
 	initNotaries: function(){
 		//Pers_debug.d_print("main", "\nPerspectives Initialization\n");
 		var date = new Date();
-		var curDate = null;
-		do {curDate = new Date();}
-		while(curDate-date < 5000)
 		Perspectives.fillNotaryList(); 
+		if (localStorage["perspectives_security_level"] == null ||
+			localStorage["perspectives_quorum_percentage"] == null ||
+			localStorage["perspectives_quorum_duration"] == null) {
+			localStorage["perspectives_security_level"] = "High_security";
+			localStorage["perspectives_quorum_percentage"] = 75;
+			localStorage["perspectives_quorum_duration"] = 2;
+		}
+
 		chrome.tabs.onUpdated.addListener(function(tabID, changeInfo, tab) {
 			if (changeInfo.status == "complete") {	
 				Perspectives.updateStatus(tab, true, false);
