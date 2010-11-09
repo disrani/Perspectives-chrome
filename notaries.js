@@ -3,6 +3,12 @@ var Perspectives = {
  	MY_ID: "perspectives@cmu.edu",
 	TIMEOUT_SEC: 8,
 	strbundle : null, // this isn't loaded when things are intialized
+	querying_applet : false,
+	currentQueryTab : null,
+
+	query_applet_tabs : [],
+	sources_queued : [],
+	update_on_response : [],
 
 	// FIXME: these regexes should be less generous
 	nonrouted_ips : [ "^192\.168\.", "^10.", "^172\.1[6-9]\.", 
@@ -316,40 +322,121 @@ var Perspectives = {
 	//}, 
 
 	getCertificate: function(tab, has_user_permission){
-		var uri = parseUri(tab.url);
-		var fingerprint;
-		var response_recvd = false;
+		var i, found;	
 
+		var uri = parseUri(tab.url);
 		var port = uri.port;
 		if (!port) {
 			port = 443;
-		}	
-	
-		Pers_debug.d_print("main","Getting fp for " + uri.host + port);	
-		try {
-			fingerprint = chrome.tabs.sendRequest(tab.id, 
-							{"action":"get_fp", "host":uri.host, "port": port},
-							function(response) {
-				Pers_debug.d_print("main", "Got repsonse from applet:"+response);
-				var uri = parseUri(tab.url);
-				var ti = Perspectives.tab_info_cache[uri.source];
-				ti.fp = response;	
-				var service_id = uri.host + ":" + port + ",2"; 
-				var num_replies = Perspectives.query_result_data[service_id].length;
-				Pers_debug.d_print("query", "num_replies = " + num_replies + 
-								" total = " + Perspectives.notaries.length); 
-				if(num_replies == Perspectives.notaries.length) { 
-					Perspectives.notaryQueriesComplete(uri,ti.fp, service_id, 
-						tab, has_user_permission, 
-						Perspectives.query_result_data[service_id]);
-				}
-			});
-		} catch (e) {
-			Pers_debug.d_print("error", e);
+		}  
+		Pers_debug.d_print("main","getCertificate called");	
+		
+		if (Perspectives.update_on_response[uri.host] == null) {
+			Perspectives.update_on_response[uri.host] = [];
 		}
 
+		Perspectives.update_on_response[uri.host].push(tab);
+		if (Perspectives.sources_queued[uri.host]) {
+			return;
+		} else {
+			Perspectives.sources_queued[uri.host] = true;
+		}
+		Perspectives.query_applet_tabs.push(tab);
+		if (Perspectives.querying_applet && 
+			Perspectives.currentQueryTab != tab.id) {
+			Pers_debug.d_print("main",
+					"Applet already loading, queing "+tab.url);	
+			return;
+		}			
+		
+		Perspectives.querying_applet = true;
+
+		Pers_debug.d_print("main","applet tabs length "+Perspectives.query_applet_tabs.length);	
+		Perspectives.certificateAppletLoad();
 	},
 
+	certificateAppletLoad: function() {
+		do {
+			tab = Perspectives.query_applet_tabs.pop();
+		} while (!tab && Perspectives.query_applet_tabs.length != 0);
+
+		if (!tab) {
+			Pers_debug.d_print("main",
+					"No more applets to load " +Perspectives.query_applet_tabs.length);	
+			
+			Perspectives.querying_applet = false;
+			Perspectives.currentQueryTab = null;
+			return;
+		}
+		Perspectives.currentQueryTab = tab.id;
+		Pers_debug.d_print("main","Loading applet "+tab.url);	
+		chrome.tabs.sendRequest(tab.id, 
+						{"action":"load_applet", "tabId": tab.id},
+						Perspectives.certificateAppletQuery);
+	},
+
+	certificateAppletQuery: function(response) {
+		
+		chrome.tabs.get(response.tabId, 
+			function(tab) {
+				var uri = parseUri(tab.url);
+
+				var port = uri.port;
+				if (!port) {
+					port = 443;
+				}  
+
+				Pers_debug.d_print("main","Getting fp for " + uri.host + port);	
+				chrome.tabs.sendRequest(tab.id, 
+						{"action":"get_fp", "tabId": tab.id, "host":uri.host, 
+						"port": port, }, 
+						Perspectives.certificateAppletResponse);
+			});
+	},
+
+	certificateAppletResponse: function(response) {
+		Pers_debug.d_print("main", "Got repsonse from applet:"+response.fp);
+		chrome.tabs.get(response.tabId, 
+			function(tab) {
+				chrome.tabs.sendRequest(tab.id, 
+							{"action": "remove_applet"}, null);
+				Perspectives.certificateAppletLoad();
+				var uri = parseUri(tab.url);
+				var port = uri.port;
+				if (!port) {
+					port = 443;
+				}  
+				delete Perspectives.sources_queued[uri.host];
+				var ti = Perspectives.tab_info_cache[uri.source];
+				ti.fp = response.fp;	
+				var service_id = uri.host + ":" + port + ",2"; 
+				Pers_debug.d_print("main", "service_id:" +service_id);
+				var result = Perspectives.query_result_data[service_id];
+				if (result == null) {
+					Perspectives.query_result_data[service_id] = [];
+					result = Perspectives.query_result_data[service_id];
+				}
+				var num_replies = result.length;
+				Pers_debug.d_print("query", "num_replies = " + num_replies + 
+							" total = " + Perspectives.notaries.length); 
+				if(num_replies == Perspectives.notaries.length) { 
+					Perspectives.notaryQueriesComplete(uri,ti.fp, service_id, 
+									tab, true, 
+									Perspectives.query_result_data[service_id]);
+				}
+				/*
+				if (Perspectives.query_applet_tabs.length == 0) {
+					Pers_debug.d_print("query", "All applets queried");
+					Perspectives.querying_applet = false;
+				} else {
+					var t = Perspectives.query_applet_tabs.pop();
+				}
+				*/
+				
+							
+		
+		});
+	},
 
 	queryNotaries: function(fp, uri, tab, has_user_permission){
 
@@ -398,8 +485,15 @@ var Perspectives = {
     
 		Perspectives.query_timeoutid_data[service_id] = 
 			window.setTimeout(function () {
+			if (Perspectives.ssl_cache[uri.host]) {
+				return;
+			}
 			try {  
 			Pers_debug.d_print("query", "timeout querying " + service_id + " with results");
+			chrome.tabs.sendRequest(tab.id, 
+							{"action": "remove_applet"}, null);
+			Perspectives.certificateAppletLoad();
+			Perspectives.loading_applet = false;
 			var server_result_list = Perspectives.query_result_data[service_id];
 			Pers_debug.d_print("query", server_result_list); 
  
@@ -500,9 +594,9 @@ var Perspectives = {
 						Perspectives.notaryQueriesComplete(uri,fp,service_id,
 								tab, has_user_permission, 
 								Perspectives.query_result_data[service_id]);
-						delete Perspectives.query_result_data[service_id];
 						window.clearTimeout(Perspectives.
 							query_timeoutid_data[service_id]);
+						delete Perspectives.query_result_data[service_id];
 						delete Perspectives.query_timeoutid_data[service_id];  
 					} else {
 						Pers_debug.d_print("main", "Num replies:"+ num_replies +
@@ -655,8 +749,6 @@ var Perspectives = {
 			return;
 		}
 
-		var progress_img = chrome.extension.getURL("progress.gif"); 
-		chrome.browserAction.setIcon({"path": progress_img, "tabId":tab.id});
 		ti.insecure         = false;
 		ti.cert = null;
 		if (ti.fp == null && Perspectives.ssl_cache[uri.host] == null) {
@@ -718,6 +810,8 @@ var Perspectives = {
 		if(!cached_data) { 
 			ti.firstLook = true;
 			Pers_debug.d_print("main", uri.host + " needs a request\n"); 
+			var progress_img = chrome.extension.getURL("progress.gif"); 
+			chrome.browserAction.setIcon({"path": progress_img, "tabId":tab.id});
 			//var needs_perm = Perspectives.root_prefs
 			//		.getBoolPref("perspectives.require_user_permission"); 
 			// TODO: get from preference
@@ -740,6 +834,8 @@ var Perspectives = {
 			Perspectives.process_notary_results(uri, tab, has_user_permission); 
 			chrome.tabs.sendRequest(tab.id, 
 							{"action": "remove_applet"}, null);
+			Perspectives.certificateAppletLoad();
+			Perspectives.loading_applet = false;
 			
 		}
 	},
@@ -750,6 +846,7 @@ var Perspectives = {
 			var ti = Perspectives.tab_info_cache[uri.source]; 
 			ti.notary_valid = false; // default 
 			cache_cert = Perspectives.ssl_cache[uri.host];
+			var t;
 			// TODO: Fix for chome
 			/*
 			if(!ti.insecure && !cache_cert.identityText &&
@@ -758,96 +855,105 @@ var Perspectives = {
 					Perspectives.setFaviconText(Perspectives.getFaviconText() +
 					"\n\n" + "Perspectives has validated this site");
 			}
-			*/
 
 			var pers_img = chrome.extension.getURL("pers.png"); 
 			chrome.browserAction.setIcon({"path": pers_img, "tabId":tab.id});
+			*/
 
+			Perspectives.update_on_response[uri.host].push(tab);
 			var required_duration =
 						localStorage["perspectives_quorum_duration"];
+			while(t = Perspectives.update_on_response[uri.host].pop()) {
+				
+				Pers_debug.d_print("main", "Processing for tab: "+t.url); 
+				chrome.tabs.get(t.id, function(curr_t) {
+					Pers_debug.d_print("main", "Processing for tab: "+curr_t.url); 
+				
+					t = curr_t;
+					if (t.url == curr_t.url) {
+						if (cache_cert.md5 == null) {
+							Pers_statusbar.setStatus(t, Pers_statusbar.STATE_NEUT, 
+							cache_cert.tooltip);
+						} else if (cache_cert.summary.indexOf("ssl key") == -1) { 
+							/*cache_cert.tooltip = 
+							Perspectives.strbundle.getString("noRepliesWarning");
+							*/
+							Pers_statusbar.setStatus(t, Pers_statusbar.STATE_NSEC, 
+							cache_cert.tooltip);
+							if(ti.insecure) { 
+								Perspectives.notifyNoReplies(t); 
+							} 
+						} else if(!cache_cert.secure){
+							/*cache_cert.tooltip = 
+							Perspectives.strbundle.getString("inconsistentWarning");
+							*/
+							Pers_statusbar.setStatus(t, Pers_statusbar.STATE_NSEC, 
+							cache_cert.tooltip);
+							if(ti.insecure && ti.firstLook){
+								Perspectives.notifyFailed(tab);
+							}
+						} else if(cache_cert.duration < required_duration){
+							/*cache_cert.tooltip = Perspectives.strbundle.
+								getFormattedString("thresholdWarning", 
+							[ cache_cert.duration, required_duration]);
+							*/
+							Pers_statusbar.setStatus(t, Pers_statusbar.STATE_NSEC, 
+							cache_cert.tooltip);
+							if(ti.insecure && ti.firstLook){
+								Perspectives.notifyFailed(t);
+							}
+						} else { //Its secure
 
-			if (cache_cert.md5 == null) {
-				Pers_statusbar.setStatus(tab, Pers_statusbar.STATE_NEUT, 
-					cache_cert.tooltip);
-			} else if (cache_cert.summary.indexOf("ssl key") == -1) { 
-				/*cache_cert.tooltip = 
-					Perspectives.strbundle.getString("noRepliesWarning");
-				*/
-				Pers_statusbar.setStatus(tab, Pers_statusbar.STATE_NSEC, 
-					cache_cert.tooltip);
-				if(ti.insecure) { 
-					Perspectives.notifyNoReplies(tab); 
-				} 
-			} else if(!cache_cert.secure){
-				/*cache_cert.tooltip = 
-					Perspectives.strbundle.getString("inconsistentWarning");
-				*/
-				Pers_statusbar.setStatus(tab, Pers_statusbar.STATE_NSEC, 
-					cache_cert.tooltip);
-				if(ti.insecure && ti.firstLook){
-					Perspectives.notifyFailed(tab);
-				}
-			} else if(cache_cert.duration < required_duration){
-				/*cache_cert.tooltip = Perspectives.strbundle.
-					getFormattedString("thresholdWarning", 
-					[ cache_cert.duration, required_duration]);
-				*/
-				Pers_statusbar.setStatus(tab, Pers_statusbar.STATE_NSEC, 
-					cache_cert.tooltip);
-				if(ti.insecure && ti.firstLook){
-					Perspectives.notifyFailed(tab);
-				}
-			}
-			else { //Its secure
 
-
-				// Check if this site includes insecure embedded content.  If so, do not 
-				// show a green check mark, as we don't want people to incorrectly assume 
-				// that we imply that the site is secure.  Note: we still will query the 
-				// notary and will override an error page.  This is inline with the fact 
-				// that Firefox still shows an HTTPS page with insecure content, it
-				// just does not show positive security indicators.  
-				// TODO: Fix for chrome
-				if (0) {
-				/*
-				if(ti.state & Perspectives.state.STATE_IS_BROKEN) { 
-					Pers_statusbar.setStatus(uri, Pers_statusbar.STATE_NEUT, 
-					"HTTPS Certificate is trusted, but site contains insecure embedded content. ");
-				*/
-				}  else { 
-
-					ti.notary_valid = true; 
-					//cache_cert.tooltip = Perspectives.strbundle.
-					//	getFormattedString("verifiedMessage", 
-					//	[ cache_cert.duration, required_duration]);
-					Pers_statusbar.setStatus(tab, Pers_statusbar.STATE_SEC, 
-						cache_cert.tooltip);
-					if (ti.insecure){
-						ti.insecure = false;
-						ti.exceptions_enabled = Perspectives.root_prefs.
-							getBoolPref("perspectives.exceptions.enabled")
-						if(ti.exceptions_enabled) { 
-							ti.isTemp = !Perspectives.root_prefs.
-								getBoolPref("perspectives.exceptions.permanent");
-							Perspectives.do_override(tab, ti.cert, ti.isTemp);
-							//cache_cert.identityText = Perspectives.strbundle.
-							//	getString("exceptionAdded");  
-							// don't give drop-down if user gave explicit
-							// permission to query notaries
-							if(ti.firstLook && !has_user_permission){
-								Perspectives.notifyOverride(tab);
+						// Check if this site includes insecure embedded content.  If so, do not 
+						// show a green check mark, as we don't want people to incorrectly assume 
+						// that we imply that the site is secure.  Note: we still will query the 
+						// notary and will override an error page.  This is inline with the fact 
+						// that Firefox still shows an HTTPS page with insecure content, it
+						// just does not show positive security indicators.  
+						// TODO: Fix for chrome
+							if (0) {
+							/*
+							if(ti.state & Perspectives.state.STATE_IS_BROKEN) { 
+							Pers_statusbar.setStatus(uri, Pers_statusbar.STATE_NEUT, 
+							"HTTPS Certificate is trusted, but site contains insecure embedded content. ");	
+							}
+							*/
+							}  else { 
+	
+								ti.notary_valid = true; 
+								//cache_cert.tooltip = Perspectives.strbundle.
+								//	getFormattedString("verifiedMessage", 
+								//	[ cache_cert.duration, required_duration]);
+								Pers_statusbar.setStatus(t, Pers_statusbar.STATE_SEC, 
+								cache_cert.tooltip);
+								if (ti.insecure){
+									ti.insecure = false;
+									ti.exceptions_enabled = Perspectives.root_prefs.
+									getBoolPref("perspectives.exceptions.enabled")
+									if(ti.exceptions_enabled) { 
+										ti.isTemp = !Perspectives.root_prefs.
+										getBoolPref("perspectives.exceptions.permanent");
+										Perspectives.do_override(t, ti.cert, ti.isTemp);
+										//cache_cert.identityText = Perspectives.strbundle.
+										//	getString("exceptionAdded");  
+										// don't give drop-down if user gave explicit
+										// permission to query notaries
+										if(ti.firstLook && !has_user_permission){
+											Perspectives.notifyOverride(t);
+										}
+									}
+								}
 							}
 						}
-					}
-				}
-			}
 		
 
-			if(cache_cert.identityText){
-				Perspectives.setFaviconText(cache_cert.identityText);
-			}
-
- 
+						if(cache_cert.identityText){
+							Perspectives.setFaviconText(cache_cert.identityText);
+						}
+					}
+				});
+			} 
 		} catch (err) {
 			alert("done_querying_notaries error: " + err);
 		}
@@ -968,10 +1074,15 @@ var Perspectives = {
 	initNotaries: function(){
 		//Pers_debug.d_print("main", "\nPerspectives Initialization\n");
 		var date = new Date();
-		var curDate = null;
-		do {curDate = new Date();}
-		while(curDate-date < 5000)
 		Perspectives.fillNotaryList(); 
+		if (localStorage["perspectives_security_level"] == null || 
+			localStorage["perspectives_quorum_percentage"] == null ||
+			localStorage["perspectives_quorum_duration"] == null) {
+			localStorage["perspectives_security_level"] = "High_security";
+			localStorage["perspectives_quorum_percentage"] = 75;
+			localStorage["perspectives_quorum_duration"] = 2;
+		}
+
 		chrome.tabs.onUpdated.addListener(function(tabID, changeInfo, tab) {
 			if (changeInfo.status == "complete") {	
 				Perspectives.updateStatus(tab, true, false);

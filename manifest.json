@@ -1,6 +1,6 @@
 {
   "name": "Perspectives",
-  "version": "0.2",
+  "version": "0.3",
   "description": "Helps detect Man-in-the-middle attacks by verifying certificates using a collection of Network Notaries. ",
   "browser_action": {
     "default_icon": "pers.png",
@@ -15,7 +15,7 @@
 	{
 	"matches": ["https://*/*"],
 	"js": ["content.js"],
-	"run_at": "document_idle"
+	"run_at": "document_end"
 	}
   ],
 	

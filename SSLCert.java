@@ -21,6 +21,8 @@ public class SSLCert extends Applet
 
      public void stop()
      {
+		java.lang.System.out.println("Applet stopping");
+		
      }
 
 	public static String getCertFingerprint(final String hostname, final int port)

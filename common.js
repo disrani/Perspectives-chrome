@@ -1,11 +1,11 @@
 var Pers_debug = {
-	d_print_all : true,
+	d_print_all : false,
 
 	d_print_flags : { 
 		"policy" : false, 
 		"query" : false,
-		"main" : false,  
-		"error" :  false 
+		"main" : true,  
+		"error" :  true 
 	},
 
 	d_print: function(flag,line) {
