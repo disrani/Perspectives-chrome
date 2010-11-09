@@ -618,7 +618,7 @@ var Perspectives = {
 		try {
 
 			var uri = parseUri(tab.url);
-			var test_key = Perspectives.tab_info_cache[uri.source].fp
+			var test_key = Perspectives.tab_info_cache[uri.source].fp;
 			// 2 days (FIXME: make this a pref)
 			var max_stale_sec = 2 * 24 * 3600; 
 			var q_thresh = localStorage["perspectives_quorum_percentage"]/100;
