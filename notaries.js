@@ -264,15 +264,20 @@ var Perspectives = {
 	},
 
 	//certificate used in caching
-	SslCert: function(host, port, md5, summary, tooltip, svg, duration, secure){
+	SslCert: function(host, port, md5, summary, tooltip, svg, duration,
+cur_consistent, inconsistent_results, weakly_seen, server_result_list){
 		this.host     = host;
 		this.port     = port;
 		this.md5      = md5;
-		this.secure   = secure;
+		this.cur_consistent = cur_consistent;
+		this.inconsistent_results = inconsistent_results;
+		this.weakly_seen = weakly_seen;
 		this.duration = duration;
 		this.summary  = summary;
 		this.tooltip  = tooltip;
 		this.svg      = svg;
+		this.server_result_list = server_result_list;
+		this.created = Pers_util.get_unix_time();
 	},
 
 	//get_invalid_cert_SSLStatus: function(uri){
@@ -626,7 +631,19 @@ var Perspectives = {
 			var q_required = Math.round(this.notaries.length * q_thresh);
 			var quorum_duration = Pers_client_policy.get_quorum_duration(test_key, 
 					server_result_list, q_required, max_stale_sec,unixtime);  
-			var is_consistent = quorum_duration != -1;
+			var is_cur_consistent = quorum_duration != -1;
+
+			var weak_check_time_limit =
+					localStorage["perspectives_weak_consistency_time_limit"];
+			var inconsistent_check_max =
+					localStorage["perspectives_max_timespan_for_inconsistency_test"];
+
+			var is_inconsistent =
+					Pers_client_policy.inconsistency_check(server_result_list,
+								inconsistent_check_max, weak_check_time_limit);
+			var weakly_seen =
+					Pers_client_policy.key_weakly_seen_by_quorum(test_key, server_result_list,
+								q_required, weak_check_time_limit);
  
 			var qd_days =  Math.round((quorum_duration / (3600 * 24)) * 1000) / 1000;
 			var obs_text = ""; 
@@ -634,7 +651,7 @@ var Perspectives = {
 				obs_text += "\nNotary: " + server_result_list[i].server + "\n"; 
 				obs_text += Pers_xml.resultToString(server_result_list[i]); 
 			}  
-			var qd_str = (is_consistent) ? qd_days + " days" : "none";
+			var qd_str = (is_cur_consistent) ? qd_days + " days" : "none";
 			var str = "Notary Lookup for: " + service_id + "\n";
     			str += "Browser's Key = '" + test_key + "'\n"; 
     			str += "Results:\n"; 
@@ -644,11 +661,13 @@ var Perspectives = {
 
 			var svg = Pers_gen.get_svg_graph(service_id, server_result_list, 30,
 				unixtime,test_key);
-			Pers_debug.d_print("main", svg);			
 			Perspectives.ssl_cache[uri.host] = new Perspectives.SslCert(uri.host, 
 										uri.port, test_key, 
 										str, null,svg, qd_days, 
-										is_consistent);
+										is_cur_consistent,
+										is_inconsistent,
+										weakly_seen,
+										server_result_list);
 			Perspectives.process_notary_results(uri, tab ,has_user_permission); 
 
 		} catch (e) { 
@@ -694,7 +713,7 @@ var Perspectives = {
 
 		Pers_debug.d_print("main", "Update Status\n");
 		if(!tab){
-			Pers_debug.d_print("error","No Browser!!\n");
+			Pers_debug.d_print("error","No tab!!\n");
 			return;
 		}
   
@@ -718,14 +737,6 @@ var Perspectives = {
 		if(!uri.host){
 			return;
 		}
-  
-		var ti = Perspectives.tab_info_cache[uri.source]; 
-		if(!ti) { 
-			ti = {}; 
-			Perspectives.tab_info_cache[tab.url] = ti; 
-		}
-  
-		Pers_debug.d_print("main", "Update Status: " + tab.url + "\n");
 
 		if(uri.protocol != "https"){
 			//var text = Perspectives.strbundle.
@@ -735,6 +746,15 @@ var Perspectives = {
 			Perspectives.other_cache["reason"] = text;
 			return;
 		} 
+  
+		var ti = Perspectives.tab_info_cache[uri.source]; 
+		if(!ti) { 
+			ti = {}; 
+			Perspectives.tab_info_cache[tab.url] = ti; 
+		}
+  
+		Pers_debug.d_print("main", "Update Status: " + tab.url + "\n");
+
 		
 		// Note: we no longer do a DNS look-up to to see if a DNS name maps 
 		// to an RFC 1918 address, as this 'leaked' DNS info for users running
@@ -759,7 +779,7 @@ var Perspectives = {
 		//		getFormattedString("noCertError", [ uri.host ])
 		//	Pers_statusbar.setStatus(uri, Pers_statusbar.STATE_NEUT, text); 
 		//	Perspectives.other_cache["reason"] = text; 
-		//	returnwindow.;
+		//	return;
 		//}
   
 		//var md5        = ti.cert.md5Fingerprint.toLowerCase();
@@ -806,8 +826,24 @@ var Perspectives = {
 		//}   
 		
 		//Update ssl cache cert
-		ti.firstLook = false;
-		if(!cached_data) { 
+		ti.firstLook = !cached_data;
+
+		var unix_time = Pers_util.get_unix_time();
+		var max_cache_age_sec = localStorage["perspectives_max_cache_age_sec"];
+		if (cached_data && cached_data.created < 
+			(unix_time - max_cache_age_sec)) {
+			Pers_debug.d_print("main", "Cached data is stale. Re-evaluate security.");
+			delete Perspectives.ssl_cache[uri.host];
+			cached_data = null;
+		}
+
+		if(cached_data) { 
+			Perspectives.process_notary_results(uri, tab, has_user_permission);
+			chrome.tabs.sendRequest(tab.id, 
+							{"action": "remove_applet"}, null);
+			Perspectives.certificateAppletLoad();
+			Perspectives.loading_applet = false;
+		} else {
 			ti.firstLook = true;
 			Pers_debug.d_print("main", uri.host + " needs a request\n"); 
 			var progress_img = chrome.extension.getURL("progress.gif"); 
@@ -830,13 +866,6 @@ var Perspectives = {
 			// notaries, the logic picks up again with the function 
 			// 'done_querying_notaries()' below
 			this.queryNotaries(ti.fp, uri, tab, has_user_permission);
-		}else {
-			Perspectives.process_notary_results(uri, tab, has_user_permission); 
-			chrome.tabs.sendRequest(tab.id, 
-							{"action": "remove_applet"}, null);
-			Perspectives.certificateAppletLoad();
-			Perspectives.loading_applet = false;
-			
 		}
 	},
 
@@ -855,14 +884,18 @@ var Perspectives = {
 					Perspectives.setFaviconText(Perspectives.getFaviconText() +
 					"\n\n" + "Perspectives has validated this site");
 			}
-
-			var pers_img = chrome.extension.getURL("pers.png"); 
-			chrome.browserAction.setIcon({"path": pers_img, "tabId":tab.id});
 			*/
 
 			Perspectives.update_on_response[uri.host].push(tab);
 			var required_duration =
 						localStorage["perspectives_quorum_duration"];
+			var strong_trust = cache_cert.cur_consistent && 
+						(cache_cert.duration >= required_duration);
+			var pref_https_weak =
+						localStorage["perspectives.trust_https_with_weak_consistency"];
+			var weak_trust = cache_cert.inconsistent_results &&
+						cache_cert.weakly_seen;
+
 			while(t = Perspectives.update_on_response[uri.host].pop()) {
 				
 				Pers_debug.d_print("main", "Processing for tab: "+t.url); 
@@ -870,41 +903,35 @@ var Perspectives = {
 					Pers_debug.d_print("main", "Processing for tab: "+curr_t.url); 
 				
 					t = curr_t;
-					if (t.url == curr_t.url) {
-						if (cache_cert.md5 == null) {
-							Pers_statusbar.setStatus(t, Pers_statusbar.STATE_NEUT, 
-							cache_cert.tooltip);
-						} else if (cache_cert.summary.indexOf("ssl key") == -1) { 
-							/*cache_cert.tooltip = 
-							Perspectives.strbundle.getString("noRepliesWarning");
-							*/
-							Pers_statusbar.setStatus(t, Pers_statusbar.STATE_NSEC, 
-							cache_cert.tooltip);
-							if(ti.insecure) { 
-								Perspectives.notifyNoReplies(t); 
-							} 
-						} else if(!cache_cert.secure){
-							/*cache_cert.tooltip = 
-							Perspectives.strbundle.getString("inconsistentWarning");
-							*/
-							Pers_statusbar.setStatus(t, Pers_statusbar.STATE_NSEC, 
-							cache_cert.tooltip);
-							if(ti.insecure && ti.firstLook){
-								Perspectives.notifyFailed(tab);
-							}
-						} else if(cache_cert.duration < required_duration){
-							/*cache_cert.tooltip = Perspectives.strbundle.
-								getFormattedString("thresholdWarning", 
-							[ cache_cert.duration, required_duration]);
-							*/
-							Pers_statusbar.setStatus(t, Pers_statusbar.STATE_NSEC, 
-							cache_cert.tooltip);
-							if(ti.insecure && ti.firstLook){
-								Perspectives.notifyFailed(t);
-							}
-						} else { //Its secure
+					if (t.url != curr_t.url) {
+						continue;
+					}
 
+					if (cache_cert.md5 == null) {
+						Pers_statusbar.setStatus(t, Pers_statusbar.STATE_NEUT, 
+							cache_cert.tooltip);
+						continue;
+					}
 
+					if(strong_trust) {
+						ti.notary_valid = true;
+						if (ti.insecure){
+							ti.insecure = false;
+							ti.exceptions_enabled = Perspectives.root_prefs.
+								getBoolPref("perspectives.exceptions.enabled")
+							if(ti.exceptions_enabled) {
+								var isTemp = !Perspectives.root_prefs.
+									getBoolPref("perspectives.exceptions.permanent");
+								Perspectives.do_override(browser, ti.cert, isTemp);
+								cache_cert.identityText = Perspectives.strbundle.
+									getString("exceptionAdded");
+								// don't give drop-down if user gave explicit
+								// permission to query notaries
+								if(ti.firstLook && !has_user_permission){
+									Perspectives.notifyOverride(browser);
+								}
+							}
+						}
 						// Check if this site includes insecure embedded content.  If so, do not 
 						// show a green check mark, as we don't want people to incorrectly assume 
 						// that we imply that the site is secure.  Note: we still will query the 
@@ -920,37 +947,70 @@ var Perspectives = {
 							}
 							*/
 							}  else { 
-	
 								ti.notary_valid = true; 
 								//cache_cert.tooltip = Perspectives.strbundle.
 								//	getFormattedString("verifiedMessage", 
 								//	[ cache_cert.duration, required_duration]);
 								Pers_statusbar.setStatus(t, Pers_statusbar.STATE_SEC, 
 								cache_cert.tooltip);
-								if (ti.insecure){
-									ti.insecure = false;
-									ti.exceptions_enabled = Perspectives.root_prefs.
-									getBoolPref("perspectives.exceptions.enabled")
-									if(ti.exceptions_enabled) { 
-										ti.isTemp = !Perspectives.root_prefs.
-										getBoolPref("perspectives.exceptions.permanent");
-										Perspectives.do_override(t, ti.cert, ti.isTemp);
-										//cache_cert.identityText = Perspectives.strbundle.
-										//	getString("exceptionAdded");  
-										// don't give drop-down if user gave explicit
-										// permission to query notaries
-										if(ti.firstLook && !has_user_permission){
-											Perspectives.notifyOverride(t);
-										}
-									}
-								}
 							}
+					} else if (!ti.insecure && weak_trust && pref_https_weak) {
+						if(ti.state & Perspectives.state.STATE_IS_BROKEN) {
+							Pers_statusbar.setStatus(t, Pers_statusbar.STATE_NEUT,
+								"HTTPS Certificate is trusted, but site contains insecure embedded content. ");
+						}  else {
+							Pers_statusbar.setStatus(t, Pers_statusbar.STATE_SEC,
+								"This site uses multiple certificates, including the certificate received and trusted by your browser.");
+
 						}
+					} else if (cache_cert.summary.indexOf("ssl key") == -1) { 
+						/*cache_cert.tooltip = 
+						Perspectives.strbundle.getString("noRepliesWarning");
+						*/
+						cache_cert.tooltip = "No replies";
+						Pers_statusbar.setStatus(t, Pers_statusbar.STATE_NSEC, 
+							cache_cert.tooltip);
+						if(ti.insecure) { 
+							Perspectives.notifyNoReplies(t); 
+						} 
+					} else if(cache_cert.inconsistent_results && !cache_cert.weakly_seen) {
+						cache_cert.tooltip = "This site regularly uses multiple certificates, and most Notaries have not recently seen the certificate received by the browser";
+						Pers_statusbar.setStatus(t, Pers_statusbar.STATE_NSEC,
+							cache_cert.tooltip);
+					} else if(cache_cert.inconsistent_results) {
+						cache_cert.tooltip = "Perspectives is unable to validate this site, because the site regularly uses multiple certificates";
+						Pers_statusbar.setStatus(t, Pers_statusbar.STATE_NEUT,
+							cache_cert.tooltip);
+					} else if(!cache_cert.cur_consistent){
+						/*cache_cert.tooltip = 
+						Perspectives.strbundle.getString("inconsistentWarning");
+						*/
+						cache_cert.tooltip = "Inconsistent key seen";
+						Pers_statusbar.setStatus(t, Pers_statusbar.STATE_NSEC, 
+							cache_cert.tooltip);
+						if(ti.insecure && ti.firstLook){
+							Perspectives.notifyFailed(tab);
+						}
+					} else if(cache_cert.duration < required_duration){
+						/*cache_cert.tooltip = Perspectives.strbundle.
+							getFormattedString("thresholdWarning", 
+						[ cache_cert.duration, required_duration]);
+						*/
+						cache_cert.tooltip = "Quorum duration not met";
+						Pers_statusbar.setStatus(t, Pers_statusbar.STATE_NSEC, 
+						cache_cert.tooltip);
+						if(ti.insecure && ti.firstLook){
+							Perspectives.notifyFailed(t);
+						}
+					} else {
+						cache_cert.tooltip = "An unknown Error occurred processing Notary results";
+						Pers_statusbar.setStatus(t, Pers_statusbar.STATE_ERROR,
+							cache_cert.tooltip);
+					}
 		
 
-						if(cache_cert.identityText){
-							Perspectives.setFaviconText(cache_cert.identityText);
-						}
+					if(cache_cert.identityText){
+						Perspectives.setFaviconText(cache_cert.identityText);
 					}
 				});
 			} 
@@ -1075,13 +1135,7 @@ var Perspectives = {
 		//Pers_debug.d_print("main", "\nPerspectives Initialization\n");
 		var date = new Date();
 		Perspectives.fillNotaryList(); 
-		if (localStorage["perspectives_security_level"] == null || 
-			localStorage["perspectives_quorum_percentage"] == null ||
-			localStorage["perspectives_quorum_duration"] == null) {
-			localStorage["perspectives_security_level"] = "High_security";
-			localStorage["perspectives_quorum_percentage"] = 75;
-			localStorage["perspectives_quorum_duration"] = 2;
-		}
+		Perspectives.initSettings();
 
 		chrome.tabs.onUpdated.addListener(function(tabID, changeInfo, tab) {
 			if (changeInfo.status == "complete") {	
@@ -1094,6 +1148,21 @@ var Perspectives = {
 		//setTimeout(function (){ Perspectives.requeryAllTabs(gBrowser); }, 4000);
 //		Pers_debug.d_print("main", "Perspectives Finished Initialization\n\n");
 	}, 
+
+	initSettings: function() {
+		if (localStorage["perspectives_security_level"] == null || 
+			localStorage["perspectives_quorum_percentage"] == null ||
+			localStorage["perspectives_quorum_duration"] == null) {
+			localStorage["perspectives_security_level"] = "High_security";
+			localStorage["perspectives_quorum_percentage"] = 75;
+			localStorage["perspectives_quorum_duration"] = 2;
+		}
+	
+		localStorage["perspectives_max_timespan_for_inconsistenct_test"] = 7;
+		localStorage["perspectives_weak_consistency_time_limit"] = 30;
+		localStorage["perspectives_trust_https_with_weak_consistency"] = true;
+		localStorage["perspectives.whitelist"] = [];
+	},	
 
 	forceStatusUpdate : function(browser) { 
 		var uri = browser.currentURI;
