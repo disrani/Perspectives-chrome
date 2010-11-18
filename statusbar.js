@@ -61,6 +61,11 @@ var Pers_statusbar = {
 			img = chrome.extension.getURL("error.png");
 			break;
 		}
+		clearInterval(Perspectives.progress_bar[tab.id]);
+		var s = document.getElementById("canvas_"+tab.id);
+        if (s != null) {
+			document.body.removeChild(s);
+		}
 		chrome.browserAction.setIcon({"path": img, "tabId":tab.id});
 		Pers_debug.d_print("main", "changing tooltip to: " + tooltip + "\n"); 
 		return true;

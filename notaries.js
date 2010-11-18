@@ -1,7 +1,7 @@
 
 var Perspectives = {
  	MY_ID: "perspectives@cmu.edu",
-	TIMEOUT_SEC: 8,
+	TIMEOUT_SEC: 12,
 	strbundle : null, // this isn't loaded when things are intialized
 	querying_applet : false,
 	currentQueryTab : null,
@@ -9,6 +9,7 @@ var Perspectives = {
 	query_applet_tabs : [],
 	sources_queued : [],
 	update_on_response : [],
+	progress_bar : {},
 
 	// FIXME: these regexes should be less generous
 	nonrouted_ips : [ "^192\.168\.", "^10.", "^172\.1[6-9]\.", 
@@ -340,8 +341,8 @@ cur_consistent, inconsistent_results, weakly_seen, server_result_list){
 			Perspectives.update_on_response[uri.host] = [];
 		}
 
-		Perspectives.update_on_response[uri.host].push(tab);
 		if (Perspectives.sources_queued[uri.host]) {
+			Perspectives.update_on_response[uri.host].push(tab);
 			return;
 		} else {
 			Perspectives.sources_queued[uri.host] = true;
@@ -362,7 +363,7 @@ cur_consistent, inconsistent_results, weakly_seen, server_result_list){
 
 	certificateAppletLoad: function() {
 		do {
-			tab = Perspectives.query_applet_tabs.pop();
+			tab = Perspectives.query_applet_tabs.shift();
 		} while (!tab && Perspectives.query_applet_tabs.length != 0);
 
 		if (!tab) {
@@ -846,8 +847,37 @@ cur_consistent, inconsistent_results, weakly_seen, server_result_list){
 		} else {
 			ti.firstLook = true;
 			Pers_debug.d_print("main", uri.host + " needs a request\n"); 
-			var progress_img = chrome.extension.getURL("progress.gif"); 
-			chrome.browserAction.setIcon({"path": progress_img, "tabId":tab.id});
+
+			var progress_img = new Image();
+			progress_img.src = chrome.extension.getURL("progress.gif"); 
+			var canvas = document.getElementById('canvas_'+tab.id);
+			Pers_debug.d_print("main", "canvas "+canvas);
+			if (canvas == null) {
+				canvas = document.createElement('canvas');
+				document.body.appendChild(canvas);
+				canvas.setAttribute("id", "canvas_"+tab.id);
+				canvas.setAttribute("height", "19");
+				canvas.setAttribute("width", "19");
+			} else {
+				if (Perspectives.progress_bar[tab.id]) {
+					clearInterval(Perspectives.progress_bar[tab.id]);
+				}
+			}
+
+			var context = canvas.getContext('2d');
+			context.drawImage(progress_img, 0, 0, 19, 19);
+			Perspectives.progress_bar[tab.id] = setInterval(function() {
+				context.translate(9.5,9.5);
+				context.rotate(1);
+				context.translate(-9.5,-9.5);
+				context.clearRect(0,0,19,19);
+				context.drawImage(progress_img, 0, 0, 19, 19);
+			chrome.browserAction.setIcon({"imageData":context.getImageData(0, 0, 19, 19), "tabId":tab.id});
+			}, 100);
+				
+			//context.fillStyle = context.createPattern(progress_img, 'repeat');
+			//context.fillRect(0, 0, 19, 19);
+	
 			//var needs_perm = Perspectives.root_prefs
 			//		.getBoolPref("perspectives.require_user_permission"); 
 			// TODO: get from preference
@@ -886,7 +916,6 @@ cur_consistent, inconsistent_results, weakly_seen, server_result_list){
 			}
 			*/
 
-			Perspectives.update_on_response[uri.host].push(tab);
 			var required_duration =
 						localStorage["perspectives_quorum_duration"];
 			var strong_trust = cache_cert.cur_consistent && 
@@ -896,6 +925,7 @@ cur_consistent, inconsistent_results, weakly_seen, server_result_list){
 			var weak_trust = cache_cert.inconsistent_results &&
 						cache_cert.weakly_seen;
 
+			Perspectives.update_on_response[uri.host].push(tab);
 			while(t = Perspectives.update_on_response[uri.host].pop()) {
 				
 				Pers_debug.d_print("main", "Processing for tab: "+t.url); 
@@ -904,16 +934,11 @@ cur_consistent, inconsistent_results, weakly_seen, server_result_list){
 				
 					t = curr_t;
 					if (t.url != curr_t.url) {
-						continue;
-					}
-
-					if (cache_cert.md5 == null) {
+						/* Do nothing  */
+					} else if (cache_cert.md5 == null) {
 						Pers_statusbar.setStatus(t, Pers_statusbar.STATE_NEUT, 
 							cache_cert.tooltip);
-						continue;
-					}
-
-					if(strong_trust) {
+					} else if(strong_trust) {
 						ti.notary_valid = true;
 						if (ti.insecure){
 							ti.insecure = false;
