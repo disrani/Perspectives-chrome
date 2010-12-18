@@ -20,11 +20,10 @@ chrome.extension.onRequest.addListener(
 				var fp = null;
 				try {
 					var s = document.getElementById("SSLCert");
-					console.log(s);
 			        fp = s.getCertFingerprint(request.host, request.port);
-					console.log(fp);
+					//console.log(fp);
 			    } catch(e) {
-			        alert("content error:"+e.name+":"+e.message);
+			        console.log("content error:"+e.name+":"+e.message);
 			    }
 				//s.kill();
 				//document.body.removeChild(s);

@@ -326,9 +326,21 @@ cur_consistent, inconsistent_results, weakly_seen, server_result_list){
 	//		return null;
 	//	}
 	//}, 
+	java_cert_applet_enabled: function() {
+
+		if (localStorage["perspectives_java_cert_applet_enabled"] == "true") {
+			return true;
+		} else {
+			return false;
+		}
+	},
 
 	getCertificate: function(tab, has_user_permission){
 		var i, found;	
+
+		if (!Perspectives.java_cert_applet_enabled()) {
+			return;
+		}
 
 		var uri = parseUri(tab.url);
 		var port = uri.port;
@@ -341,7 +353,8 @@ cur_consistent, inconsistent_results, weakly_seen, server_result_list){
 			Perspectives.update_on_response[uri.host] = [];
 		}
 
-		if (Perspectives.sources_queued[uri.host]) {
+		if (Perspectives.sources_queued[uri.host] && 
+			Perspectives.currentQueryTab != tab.id) {
 			Perspectives.update_on_response[uri.host].push(tab);
 			return;
 		} else {
@@ -551,9 +564,8 @@ cur_consistent, inconsistent_results, weakly_seen, server_result_list){
 							parse_server_node(server_node,1);
 					var bin_result = Pers_xml.
 							pack_result_as_binary(server_result,service_id);
-					Pers_debug.d_print("main", bin_result);
-					Pers_debug.d_print("query", 
-						Pers_xml.resultToString(server_result,false)); 
+					Pers_debug.d_print("main", "BInary:"+bin_result);
+
 					// TODO: Check signature
 					/*
 					var verifier = 
@@ -595,7 +607,8 @@ cur_consistent, inconsistent_results, weakly_seen, server_result_list){
 					Pers_debug.d_print("query", "num_replies = " + num_replies + 
 								" total = " + Perspectives.notaries.length); 
 					if(num_replies == Perspectives.notaries.length &&
-					  this.tab_info_cache[uri.source].fp != null) { 
+					  (this.tab_info_cache[uri.source].fp != null || 
+						!Perspectives.java_cert_applet_enabled())) {
 						Pers_debug.d_print("query","got all server replies"); 	
 						Perspectives.notaryQueriesComplete(uri,fp,service_id,
 								tab, has_user_permission, 
@@ -925,6 +938,9 @@ cur_consistent, inconsistent_results, weakly_seen, server_result_list){
 			var weak_trust = cache_cert.inconsistent_results &&
 						cache_cert.weakly_seen;
 
+			if (Perspectives.update_on_response[uri.host] == null) {
+				Perspectives.update_on_response[uri.host] = [];
+			}
 			Perspectives.update_on_response[uri.host].push(tab);
 			while(t = Perspectives.update_on_response[uri.host].pop()) {
 				
@@ -1186,7 +1202,12 @@ cur_consistent, inconsistent_results, weakly_seen, server_result_list){
 		localStorage["perspectives_max_timespan_for_inconsistenct_test"] = 7;
 		localStorage["perspectives_weak_consistency_time_limit"] = 30;
 		localStorage["perspectives_trust_https_with_weak_consistency"] = true;
-		localStorage["perspectives.whitelist"] = [];
+		localStorage["perspectives_whitelist"] = [];
+
+		if (localStorage["perspectives_java_cert_applet_enabled"] == null) {
+			localStorage["perspectives_java_cert_applet_enabled"] = true;
+		}
+			
 	},	
 
 	forceStatusUpdate : function(browser) { 

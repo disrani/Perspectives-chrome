@@ -4,9 +4,9 @@
 
 <body onload="load_current_options()">
 <h1> Perspectives Options </h1>
-<h3>Security Level </h3>
 
 <form name="options">
+<h3>Security Level </h3>
 <select name="security_level" onchange="quorum_update()">
 <option value="High_security">High Security</option>
 <option value="Medium_security">Medium Security</option>
@@ -19,6 +19,11 @@ Percentage of notaries that must agree (quorum percentage):
 
 Days of continuous agreement required (quorom duration):
 <input type="text" size="4" name="quorum_duration"><br>
+
+Java Applet to get certificate (Experimental):
+<input type="radio" name="java_cert_applet" value="Enable"/> Enable 
+<input type="radio" name="java_cert_applet" value="Disable"/> Disable
+<br> 
 
 <button onclick="save_options()">Save</button>
 
@@ -43,6 +48,14 @@ function load_current_options()
 		document.options.quorum_percentage.disabled = true;
 		document.options.quorum_duration.disabled = true;
 	}
+
+	console.log(localStorage["perspectives_java_cert_applet_enabled"]);
+	if (localStorage["perspectives_java_cert_applet_enabled"] == "true") {
+		document.options.java_cert_applet[0].checked = true;
+	} else {
+		document.options.java_cert_applet[1].checked = true;
+	}
+		
 }	
 
 function quorum_update()
@@ -78,10 +91,18 @@ function quorum_update()
 function save_options()
 {
 	localStorage["perspectives_security_level"] = 
-							document.options.security_level.value;
+			document.options.security_level.value;
 	localStorage["perspectives_quorum_percentage"] = 
 			document.options.quorum_percentage.value;
-	localStorage["perspectives_quorum_duration"] = document.options.quorum_duration.value;
+	localStorage["perspectives_quorum_duration"] = 
+			document.options.quorum_duration.value;
+	console.log(document.options.java_cert_applet[0].checked);
+	if (document.options.java_cert_applet[0].checked) {
+		localStorage["perspectives_java_cert_applet_enabled"] = true;
+	} else {
+		localStorage["perspectives_java_cert_applet_enabled"] = false;
+	}
+		
 }	
 </script>
 </body>
