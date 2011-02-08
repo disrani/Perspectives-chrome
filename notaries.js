@@ -3,11 +3,7 @@ var Perspectives = {
  	MY_ID: "perspectives@cmu.edu",
 	TIMEOUT_SEC: 12,
 	strbundle : null, // this isn't loaded when things are intialized
-	querying_applet : false,
-	currentQueryTab : null,
 
-	query_applet_tabs : [],
-	sources_queued : [],
 	update_on_response : [],
 	progress_bar : {},
 
@@ -336,11 +332,15 @@ cur_consistent, inconsistent_results, weakly_seen, server_result_list){
 	},
 
 	getCertificate: function(tab, has_user_permission){
+
 		var i, found;	
+		//var s = document.getElementById("SSLCert_bg");
+		//console.log(s);
 
 		if (!Perspectives.java_cert_applet_enabled()) {
 			return;
 		}
+
 
 		var uri = parseUri(tab.url);
 		var port = uri.port;
@@ -348,113 +348,18 @@ cur_consistent, inconsistent_results, weakly_seen, server_result_list){
 			port = 443;
 		}  
 		Pers_debug.d_print("main","getCertificate called");	
-		
 		if (Perspectives.update_on_response[uri.host] == null) {
 			Perspectives.update_on_response[uri.host] = [];
 		}
-
-		if (Perspectives.sources_queued[uri.host] && 
-			Perspectives.currentQueryTab != tab.id) {
-			Perspectives.update_on_response[uri.host].push(tab);
-			return;
-		} else {
-			Perspectives.sources_queued[uri.host] = true;
-		}
-		Perspectives.query_applet_tabs.push(tab);
-		if (Perspectives.querying_applet && 
-			Perspectives.currentQueryTab != tab.id) {
-			Pers_debug.d_print("main",
-					"Applet already loading, queing "+tab.url);	
-			return;
-		}			
 		
-		Perspectives.querying_applet = true;
+		Perspectives.update_on_response[uri.host].push(tab);
+	
+		Pers_debug.d_print("main", Perspectives.update_on_response[uri.host]);
+		var s = document.getElementById("bg_iframe");
+		s.contentWindow.postMessage({action:"getCertificate", source:uri.source,
+									host:uri.host, port:port, tab:tab}, '*');
+		return;		
 
-		Pers_debug.d_print("main","applet tabs length "+Perspectives.query_applet_tabs.length);	
-		Perspectives.certificateAppletLoad();
-	},
-
-	certificateAppletLoad: function() {
-		do {
-			tab = Perspectives.query_applet_tabs.shift();
-		} while (!tab && Perspectives.query_applet_tabs.length != 0);
-
-		if (!tab) {
-			Pers_debug.d_print("main",
-					"No more applets to load " +Perspectives.query_applet_tabs.length);	
-			
-			Perspectives.querying_applet = false;
-			Perspectives.currentQueryTab = null;
-			return;
-		}
-		Perspectives.currentQueryTab = tab.id;
-		Pers_debug.d_print("main","Loading applet "+tab.url);	
-		chrome.tabs.sendRequest(tab.id, 
-						{"action":"load_applet", "tabId": tab.id},
-						Perspectives.certificateAppletQuery);
-	},
-
-	certificateAppletQuery: function(response) {
-		
-		chrome.tabs.get(response.tabId, 
-			function(tab) {
-				var uri = parseUri(tab.url);
-
-				var port = uri.port;
-				if (!port) {
-					port = 443;
-				}  
-
-				Pers_debug.d_print("main","Getting fp for " + uri.host + port);	
-				chrome.tabs.sendRequest(tab.id, 
-						{"action":"get_fp", "tabId": tab.id, "host":uri.host, 
-						"port": port, }, 
-						Perspectives.certificateAppletResponse);
-			});
-	},
-
-	certificateAppletResponse: function(response) {
-		Pers_debug.d_print("main", "Got repsonse from applet:"+response.fp);
-		chrome.tabs.get(response.tabId, 
-			function(tab) {
-				chrome.tabs.sendRequest(tab.id, 
-							{"action": "remove_applet"}, null);
-				Perspectives.certificateAppletLoad();
-				var uri = parseUri(tab.url);
-				var port = uri.port;
-				if (!port) {
-					port = 443;
-				}  
-				delete Perspectives.sources_queued[uri.host];
-				var ti = Perspectives.tab_info_cache[uri.source];
-				ti.fp = response.fp;	
-				var service_id = uri.host + ":" + port + ",2"; 
-				Pers_debug.d_print("main", "service_id:" +service_id);
-				var result = Perspectives.query_result_data[service_id];
-				if (result == null) {
-					Perspectives.query_result_data[service_id] = [];
-					result = Perspectives.query_result_data[service_id];
-				}
-				var num_replies = result.length;
-				Pers_debug.d_print("query", "num_replies = " + num_replies + 
-							" total = " + Perspectives.notaries.length); 
-				if(num_replies == Perspectives.notaries.length) { 
-					Perspectives.notaryQueriesComplete(uri,ti.fp, service_id, 
-									tab, true, 
-									Perspectives.query_result_data[service_id]);
-				}
-				/*
-				if (Perspectives.query_applet_tabs.length == 0) {
-					Pers_debug.d_print("query", "All applets queried");
-					Perspectives.querying_applet = false;
-				} else {
-					var t = Perspectives.query_applet_tabs.pop();
-				}
-				*/
-				
-							
-		
-		});
 	},
 
 	queryNotaries: function(fp, uri, tab, has_user_permission){
@@ -509,10 +414,6 @@ cur_consistent, inconsistent_results, weakly_seen, server_result_list){
 			}
 			try {  
 			Pers_debug.d_print("query", "timeout querying " + service_id + " with results");
-			chrome.tabs.sendRequest(tab.id, 
-							{"action": "remove_applet"}, null);
-			Perspectives.certificateAppletLoad();
-			Perspectives.loading_applet = false;
 			var server_result_list = Perspectives.query_result_data[service_id];
 			Pers_debug.d_print("query", server_result_list); 
  
@@ -566,62 +467,15 @@ cur_consistent, inconsistent_results, weakly_seen, server_result_list){
 							pack_result_as_binary(server_result,service_id);
 					Pers_debug.d_print("main", "BInary:"+bin_result);
 
-					// TODO: Check signature
-					/*
-					var verifier = 
-						Cc["@mozilla.org/security/datasignatureverifier;1"].
-							createInstance(Ci.nsIDataSignatureVerifier);
-					var sig = server_result.signature; 		  
-					var result = verifier.verifyData(bin_result, 
-							server_result.signature, notary_server.public_key);
-					if(!result) { 
-						Pers_debug.d_print("error", "Invalid signature from : " + 
-							notary_server.host); 
-						return; 
-					}
-					*/
-					server_result.server = notary_server.host; 
-					
-					var result_list = this.query_result_data[service_id]; 
-					if(result_list == null) { 
-						Pers_debug.d_print("query",
-							"Query reply for '" + service_id + 
-								"' has no query result data"); 
-						return; 
-					} 
-				 	var i; 
-					for(i = 0; i < result_list.length; i++) {
-						if(result_list[i].server == server_result.server) { 
-							Pers_debug.d_print("query", 
-							  "Ignoring duplicate reply for '" + 
-								service_id + "' from '" +
-								server_result.server + "'"); 
-							return; 
-						} 
-					}   
-					Pers_debug.d_print("query","adding result from: " + 
-							notary_server.host); 
-					result_list.push(server_result); 
-  					 
-					var num_replies = this.query_result_data[service_id].length;
-					Pers_debug.d_print("query", "num_replies = " + num_replies + 
-								" total = " + Perspectives.notaries.length); 
-					if(num_replies == Perspectives.notaries.length &&
-					  (this.tab_info_cache[uri.source].fp != null || 
-						!Perspectives.java_cert_applet_enabled())) {
-						Pers_debug.d_print("query","got all server replies"); 	
-						Perspectives.notaryQueriesComplete(uri,fp,service_id,
-								tab, has_user_permission, 
-								Perspectives.query_result_data[service_id]);
-						window.clearTimeout(Perspectives.
-							query_timeoutid_data[service_id]);
-						delete Perspectives.query_result_data[service_id];
-						delete Perspectives.query_timeoutid_data[service_id];  
-					} else {
-						Pers_debug.d_print("main", "Num replies:"+ num_replies +
-"fp: "+fp);
-					}
-					  
+					var s = document.getElementById("bg_iframe");
+					s.contentWindow.postMessage({action:"verifySig", 
+								bin_data:Base64.encode(bin_result), 
+								sig:server_result.signature,
+								pubKey:notary_server.public_key,
+								service_id:service_id,
+								server_result:server_result,
+								notary_server:notary_server, uri:uri, tab:tab}, '*');
+					return;
 				} catch (e) { 
 					Pers_debug.d_print("error", "exception: " + e); 
 				} 
@@ -632,6 +486,7 @@ cur_consistent, inconsistent_results, weakly_seen, server_result_list){
 		}  
 	},  
 
+					  
 	notaryQueriesComplete: function(uri,fp,service_id, tab,
 				has_user_permission,server_result_list) {
 		try {
@@ -722,10 +577,16 @@ cur_consistent, inconsistent_results, weakly_seen, server_result_list){
 	// by default this is not the case
 	updateStatus: function(tab, has_user_permission, is_forced){
 		var text = "Error";
+		var pbar = null;
+
 		if(Perspectives.strbundle == null) 
 			Perspectives.strbundle = document.getElementById("notary_strings");
 
-		Pers_debug.d_print("main", "Update Status\n");
+		if (pbar = Perspectives.progress_bar[tab.id]) {
+			Pers_statusbar.setStatus(tab, Pers_statusbar.STATE_NEUT, text); 
+			clearInterval(pbar);
+		}
+
 		if(!tab){
 			Pers_debug.d_print("error","No tab!!\n");
 			return;
@@ -734,7 +595,7 @@ cur_consistent, inconsistent_results, weakly_seen, server_result_list){
 		var uri = parseUri(tab.url);
 		if(!uri) { 
 			//var text = Perspectives.strbundle.getString("noDataError"); 
-			Pers_statusbar.setStatus(uri, Pers_statusbar.STATE_NEUT, text); 
+			Pers_statusbar.setStatus(tab, Pers_statusbar.STATE_NEUT, text); 
 			Perspectives.other_cache["reason"] = text;
 			return;
 		}
@@ -743,7 +604,7 @@ cur_consistent, inconsistent_results, weakly_seen, server_result_list){
 			var ignore = uri.host;
 		} catch(e) {
 			var text = "URL is not a valid remote server"; 
-			Pers_statusbar.setStatus(uri, Pers_statusbar.STATE_NEUT, text); 
+			Pers_statusbar.setStatus(tab, Pers_statusbar.STATE_NEUT, text); 
 			Perspectives.other_cache["reason"] = text;
 			return;
 		}
@@ -755,7 +616,7 @@ cur_consistent, inconsistent_results, weakly_seen, server_result_list){
 		if(uri.protocol != "https"){
 			//var text = Perspectives.strbundle.
 			//	getFormattedString("nonHTTPSError", [ uri.host, uri.protocol ]);
-			//Pers_statusbar.setStatus(uri, Pers_statusbar.STATE_NEUT, text); 
+			Pers_statusbar.setStatus(tab, Pers_statusbar.STATE_NEUT, text); 
 			Pers_debug.d_print("Wrong protocol "+uri.protocol);
 			Perspectives.other_cache["reason"] = text;
 			return;
@@ -777,16 +638,16 @@ cur_consistent, inconsistent_results, weakly_seen, server_result_list){
 		if(unreachable) { 
 			//var text = Perspectives.strbundle.
 			//	getFormattedString("rfc1918Error", [ uri.host ])
-			//Pers_statusbar.setStatus(uri, Pers_statusbar.STATE_NEUT, text); 
+			Pers_statusbar.setStatus(tab, Pers_statusbar.STATE_NEUT, text); 
 			Pers_debug.d_print("error", uri.host+" RFC 1918 address, skipping");
 			Perspectives.other_cache["reason"] = text; 
 			return;
 		}
 
-		ti.insecure         = false;
+		ti.insecure = false;
 		ti.cert = null;
 		if (ti.fp == null && Perspectives.ssl_cache[uri.host] == null) {
-			Perspectives.getCertificate(tab, has_user_permission);
+			ti.fp = Perspectives.getCertificate(tab, has_user_permission);
 		}
 		//if(!ti.cert){
 		//	var text = Perspectives.strbundle.
@@ -852,11 +713,8 @@ cur_consistent, inconsistent_results, weakly_seen, server_result_list){
 		}
 
 		if(cached_data) { 
+			Perspectives.update_on_response[uri.host].push(tab);
 			Perspectives.process_notary_results(uri, tab, has_user_permission);
-			chrome.tabs.sendRequest(tab.id, 
-							{"action": "remove_applet"}, null);
-			Perspectives.certificateAppletLoad();
-			Perspectives.loading_applet = false;
 		} else {
 			ti.firstLook = true;
 			Pers_debug.d_print("main", uri.host + " needs a request\n"); 
@@ -888,9 +746,6 @@ cur_consistent, inconsistent_results, weakly_seen, server_result_list){
 			chrome.browserAction.setIcon({"imageData":context.getImageData(0, 0, 19, 19), "tabId":tab.id});
 			}, 100);
 				
-			//context.fillStyle = context.createPattern(progress_img, 'repeat');
-			//context.fillRect(0, 0, 19, 19);
-	
 			//var needs_perm = Perspectives.root_prefs
 			//		.getBoolPref("perspectives.require_user_permission"); 
 			// TODO: get from preference
@@ -915,10 +770,10 @@ cur_consistent, inconsistent_results, weakly_seen, server_result_list){
 	process_notary_results: function(uri, tab, has_user_permission) {  
 		try { 
  
+			var t = null;
 			var ti = Perspectives.tab_info_cache[uri.source]; 
 			ti.notary_valid = false; // default 
 			cache_cert = Perspectives.ssl_cache[uri.host];
-			var t;
 			// TODO: Fix for chome
 			/*
 			if(!ti.insecure && !cache_cert.identityText &&
@@ -934,24 +789,25 @@ cur_consistent, inconsistent_results, weakly_seen, server_result_list){
 			var strong_trust = cache_cert.cur_consistent && 
 						(cache_cert.duration >= required_duration);
 			var pref_https_weak =
-						localStorage["perspectives.trust_https_with_weak_consistency"];
+				localStorage["perspectives.trust_https_with_weak_consistency"];
 			var weak_trust = cache_cert.inconsistent_results &&
-						cache_cert.weakly_seen;
-
+							 cache_cert.weakly_seen;
 			if (Perspectives.update_on_response[uri.host] == null) {
 				Perspectives.update_on_response[uri.host] = [];
 			}
-			Perspectives.update_on_response[uri.host].push(tab);
 			while(t = Perspectives.update_on_response[uri.host].pop()) {
 				
-				Pers_debug.d_print("main", "Processing for tab: "+t.url); 
 				chrome.tabs.get(t.id, function(curr_t) {
 					Pers_debug.d_print("main", "Processing for tab: "+curr_t.url); 
-				
+					var curr_uri = parseUri(curr_t.url);
+					if (uri.host != curr_uri.host) {
+						/* Tab URL has changed, do nothing */
+						return;
+					}
+
 					t = curr_t;
-					if (t.url != curr_t.url) {
-						/* Do nothing  */
-					} else if (cache_cert.md5 == null) {
+					
+					if (cache_cert.md5 == null) {
 						Pers_statusbar.setStatus(t, Pers_statusbar.STATE_NEUT, 
 							cache_cert.tooltip);
 					} else if(strong_trust) {
@@ -1030,7 +886,7 @@ cur_consistent, inconsistent_results, weakly_seen, server_result_list){
 						Pers_statusbar.setStatus(t, Pers_statusbar.STATE_NSEC, 
 							cache_cert.tooltip);
 						if(ti.insecure && ti.firstLook){
-							Perspectives.notifyFailed(tab);
+							Perspectives.notifyFailed(t);
 						}
 					} else if(cache_cert.duration < required_duration){
 						/*cache_cert.tooltip = Perspectives.strbundle.
@@ -1178,8 +1034,10 @@ cur_consistent, inconsistent_results, weakly_seen, server_result_list){
 		Perspectives.fillNotaryList(); 
 		Perspectives.initSettings();
 
+		window.addEventListener('message', Perspectives.iframeApplet_cb, false);
+
 		chrome.tabs.onUpdated.addListener(function(tabID, changeInfo, tab) {
-			if (changeInfo.status == "complete") {	
+			if (changeInfo.status == "loading") {	
 				Perspectives.updateStatus(tab, true, false);
 			}
 		});
@@ -1219,8 +1077,90 @@ cur_consistent, inconsistent_results, weakly_seen, server_result_list){
 		} else { 
 			Pers_debug.d_print("main", "Requested force check, but no URI is found"); 
 		} 
-	} 
+	}, 
 
+	iframeApplet_cb: function(msg) {
+		Pers_debug.d_print("main", msg.data); 
+		if (msg.data.reply == "getCertificate") {
+			Pers_debug.d_print("main", "got fp"+msg.data.source+msg.data.fp); 
+			var ti = Perspectives.tab_info_cache[msg.data.source];
+			ti.fp = msg.data.fp;	
+			var uri = parseUri(msg.data.source);
+			var port = uri.port;
+			if (!port) {
+				port = 443;
+			}  
+			var service_id = uri.host + ":" + port + ",2"; 
+			Pers_debug.d_print("main", "service_id:" +service_id);
+			var result = Perspectives.query_result_data[service_id];
+			if (result == null) {
+				Perspectives.query_result_data[service_id] = [];
+				result = Perspectives.query_result_data[service_id];
+			}
+			var num_replies = result.length;
+			Pers_debug.d_print("query", "num_replies = " + num_replies + 
+						" total = " + Perspectives.notaries.length); 
+			if(num_replies == Perspectives.notaries.length) { 
+				Perspectives.notaryQueriesComplete(uri,ti.fp, service_id, 
+								msg.data.tab, true,
+								Perspectives.query_result_data[service_id]);
+			}
+		} else if (msg.data.reply == "verifySig") {
+			var service_id = msg.data.service_id;
+			var server_result = msg.data.server_result;
+			var uri = msg.data.uri;
+			var fp = Perspectives.tab_info_cache[uri.source].fp;
+			var has_user_permission = true; //Chrome:Hard coded
+			var notary_server = msg.data.notary_server;
+			var tab = msg.data.tab;
+
+			if (msg.data.result == false) {
+				Pers_debug.d_print("error", "Invalid signature from : " + 
+					notary_server.host); 
+				return; 
+			}
+			server_result.server = notary_server.host; 
+			
+			var result_list = Perspectives.query_result_data[service_id]; 
+			if(result_list == null) { 
+				Pers_debug.d_print("query",
+					"Query reply for '" + service_id + 
+						"' has no query result data"); 
+				return; 
+			} 
+		 	var i; 
+			for(i = 0; i < result_list.length; i++) {
+				if(result_list[i].server == server_result.server) { 
+					Pers_debug.d_print("query", 
+					  "Ignoring duplicate reply for '" + 
+						service_id + "' from '" +
+						server_result.server + "'"); 
+					return; 
+				} 
+			}   
+			Pers_debug.d_print("query","adding result from: " + 
+					notary_server.host); 
+			result_list.push(server_result); 
+  			 
+			var num_replies = Perspectives.query_result_data[service_id].length;
+			Pers_debug.d_print("query", "num_replies = " + num_replies + 
+						" total = " + Perspectives.notaries.length); 
+			if(num_replies == Perspectives.notaries.length &&
+			  (fp != null || !Perspectives.java_cert_applet_enabled())) {
+				Pers_debug.d_print("query","got all server replies"); 	
+				Perspectives.notaryQueriesComplete(uri,fp,service_id,
+						tab, has_user_permission, 
+						Perspectives.query_result_data[service_id]);
+				window.clearTimeout(Perspectives.
+					query_timeoutid_data[service_id]);
+				delete Perspectives.query_result_data[service_id];
+				delete Perspectives.query_timeoutid_data[service_id];  
+			} else {
+				Pers_debug.d_print("main", "Num replies:"+ num_replies + 
+								"fp: "+fp);
+			}
+		}
+	}		
 }
 
 Perspectives.other_cache["debug"] = ""; 

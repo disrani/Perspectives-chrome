@@ -1,0 +1,6 @@
+#!/bin/bash
+
+javac Perspectives.java -classpath commons-codec-1.4/commons-codec-1.4.jar 
+jar cvf Perspectives.jar *.class 
+jarsigner -storetype pkcs12 -keystore ../CMU-Perspectives.p12 Perspectives.jar pers
+scp Perspectives.jar commons-codec-1.4/commons-codec-1.4.jar ddi@unix.andrew.cmu.edu:www/

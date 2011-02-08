@@ -31,7 +31,8 @@ var Pers_xml = {
 			return null; 
 		} 
 		var sig_base64 = reply.attributes.getNamedItem("sig").value; 
-		res.signature = Pers_xml.add_der_signature_header(sig_base64); 
+		//res.signature = Pers_xml.add_der_signature_header(sig_base64); 
+		res.signature = sig_base64; 
 		res.obs     = new Array();
 		for (var j = 0; j < reply.childNodes.length; j++){
 			var keynode = reply.childNodes[j];

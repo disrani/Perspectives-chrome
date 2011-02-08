@@ -26,7 +26,7 @@ chrome.extension.onRequest.addListener(
 			        console.log("content error:"+e.name+":"+e.message);
 			    }
 				//s.kill();
-				//document.body.removeChild(s);
+				document.body.removeChild(s);
 				sendResponse({"fp":fp, "tabId": request.tabId});
 			}, 1000);
 		} else if (request.action == "remove_applet") {

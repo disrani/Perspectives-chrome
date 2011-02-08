@@ -1,0 +1,31 @@
+<html>
+
+<head>
+<script type="text/javascript">
+<!--
+function print_fp()
+{
+	console.log("bg page iframe");
+	//var s = document.getElementById("SSLCert_bg");
+    console.log(document.SSLCert_bg);
+	var fp = document.SSLCert_bg.getCertFingerprint("www.google.com", 443);
+	console.log(fp);
+}
+console.log(chrome.extension);
+chrome.extension.onConnect.addListener(function(port) {
+	port.onMessage.addListener(function(msg) {
+		console.log(msg);
+		var fp = document.SSLCert_bg.getCertFingerprint(msg.host, msg.port);
+		console.log(fp);
+		port.postMessage({reply: fp});
+	});
+});
+//-->
+</script>
+</head>
+<body >
+<applet name="SSLCert_bg" height="1" width="1" code="SSLCert"
+archive="https://www.andrew.cmu.edu/user/ddi/SSLjar.jar" codebase="."></applet>
+
+</body>
+</html>

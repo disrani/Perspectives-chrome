@@ -9,13 +9,15 @@
   "permissions": [
 	"https://*/*",
 	"http://*.ron.lcs.mit.edu/*",
+	"https://www.andrew.cmu.edu/user/ddi/*",
 	"tabs"
   ],
   "content_scripts": [
 	{
 	"matches": ["https://*/*"],
 	"js": ["content.js"],
-	"run_at": "document_end"
+	"run_at": "document_end",
+	"all_frames": true
 	}
   ],
 	
